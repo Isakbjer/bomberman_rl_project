@@ -4,7 +4,7 @@ from typing import Tuple, List
 import numpy as np
 
 import settings as s
-from bomberman_rl_project.agents import Agent
+from agents import Agent
 from environment import GenericWorld, WorldArgs
 from fallbacks import pygame
 from items import Coin
