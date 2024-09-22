@@ -3,6 +3,13 @@ import pickle
 import random
 import numpy as np
 from collections import deque
+from types import SimpleNamespace
+import logging
+
+try:
+    from ..rule_based_agent import callbacks as rule_based
+except ImportError:
+    rule_based = None
 
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
@@ -27,6 +34,12 @@ class MyRLAgent:
             with open("q_table.pkl", "rb") as file:
                 self.q_table = pickle.load(file)
         self.transitions = deque(maxlen=3)
+
+        self.rb_agent = SimpleNamespace()
+        self.rb_agent.logger = logging.getLogger("rule-based initial policy")
+        self.rb_agent.train = False
+
+        rule_based.setup(self.rb_agent)
 
     def state_to_features(self, game_state):
         """
