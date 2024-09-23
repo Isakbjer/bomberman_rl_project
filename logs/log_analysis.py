@@ -87,3 +87,106 @@ if __name__ == "__main__":
         print(f"  Total Rounds Played: {total_rounds}")
         print(f"  Total Wins: {stats['wins']}")
         print("------------------------------")
+"""
+Agent: my_tabQ_agent_v1
+  Win Rate: 16.00%
+  Survival Rate: 34.00%
+  Average Coins Collected: 12.48
+  Total Deaths: 33
+  Total Rounds Played: 50
+  Total Wins: 8
+------------------------------
+Agent: rule_based_agent_1
+  Win Rate: 22.00%
+  Survival Rate: 50.00%
+  Average Coins Collected: 13.36
+  Total Deaths: 25
+  Total Rounds Played: 50
+  Total Wins: 11
+------------------------------
+Agent: rule_based_agent_0
+  Win Rate: 28.00%
+  Survival Rate: 52.00%
+  Average Coins Collected: 12.36
+  Total Deaths: 24
+  Total Rounds Played: 50
+  Total Wins: 14
+------------------------------
+Agent: rule_based_agent_2
+  Win Rate: 38.00%
+  Survival Rate: 60.00%
+  Average Coins Collected: 11.80
+  Total Deaths: 20
+  Total Rounds Played: 50
+  Total Wins: 19
+------------------------------
+
+After 100 rounds of training, 50 new test games:
+Agent: rule_based_agent_0
+  Win Rate: 50.00%
+  Survival Rate: 64.00%
+  Average Coins Collected: 13.06
+  Total Deaths: 18
+  Total Rounds Played: 50
+  Total Wins: 25
+------------------------------
+Agent: rule_based_agent_2
+  Win Rate: 26.00%
+  Survival Rate: 54.00%
+  Average Coins Collected: 12.40
+  Total Deaths: 23
+  Total Rounds Played: 50
+  Total Wins: 13
+------------------------------
+Agent: rule_based_agent_1
+  Win Rate: 22.00%
+  Survival Rate: 44.00%
+  Average Coins Collected: 12.62
+  Total Deaths: 28
+  Total Rounds Played: 50
+  Total Wins: 11
+------------------------------
+Agent: my_tabQ_agent_v1
+  Win Rate: 8.00%
+  Survival Rate: 26.00%
+  Average Coins Collected: 11.92
+  Total Deaths: 37
+  Total Rounds Played: 50
+  Total Wins: 4
+------------------------------
+
+After 700 more training rounds:
+Agent: my_tabQ_agent_v1
+  Win Rate: 18.00%
+  Survival Rate: 32.00%
+  Average Coins Collected: 12.90
+  Total Deaths: 34
+  Total Rounds Played: 50
+  Total Wins: 9
+------------------------------
+Agent: rule_based_agent_1
+  Win Rate: 30.00%
+  Survival Rate: 56.00%
+  Average Coins Collected: 12.02
+  Total Deaths: 22
+  Total Rounds Played: 50
+  Total Wins: 15
+------------------------------
+Agent: rule_based_agent_0
+  Win Rate: 28.00%
+  Survival Rate: 60.00%
+  Average Coins Collected: 13.30
+  Total Deaths: 20
+  Total Rounds Played: 50
+  Total Wins: 14
+------------------------------
+Agent: rule_based_agent_2
+  Win Rate: 30.00%
+  Survival Rate: 62.00%
+  Average Coins Collected: 11.78
+  Total Deaths: 19
+  Total Rounds Played: 50
+  Total Wins: 15
+------------------------------
+
+"""
