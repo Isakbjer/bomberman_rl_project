@@ -12,14 +12,19 @@ def setup_training(self):
 
 def game_events_occurred(self, old_game_state, self_action, new_game_state, events: List[str]):
     """
-    Handle game events and perform Q-learning updates.
+    Handle game events, store transitions in replay buffer, and perform Q-learning updates.
     """
     old_state = self.agent.state_to_features(old_game_state)
     new_state = self.agent.state_to_features(new_game_state)
-
     reward = reward_from_events(self, events)
-    self.agent.update_q_table(old_state, self_action, new_state, reward)
+
+    self.agent.store_transition(old_state, self_action, reward, new_state)
+
+    # Train from replay buffer
+    self.agent.train_from_replay()
+
     self.agent.decay_epsilon()
+
 
 def end_of_round(self, last_game_state, last_action, events: List[str]):
     """

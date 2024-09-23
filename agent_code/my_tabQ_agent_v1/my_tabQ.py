@@ -23,6 +23,9 @@ class MyRLAgent:
         self.epsilon_decay = 0.995
         self.learning_rate = 0.1
         self.gamma = 0.99
+        
+        self.replay_buffer = deque(maxlen=1000)  # Replay buffer with a maximum size, started with 1000 
+        self.batch_size = 32
 
     def setup(self, training=True):
         """
@@ -40,6 +43,13 @@ class MyRLAgent:
         self.rb_agent.train = False
 
         rule_based.setup(self.rb_agent)
+    
+    def store_transition(self, old_state, action, reward, new_state):
+        """
+        Store the transition in the replay buffer.
+        """
+        self.replay_buffer.append((old_state, action, reward, new_state))
+
 
     def state_to_features(self, game_state):
         """
@@ -50,7 +60,6 @@ class MyRLAgent:
         
         agent_x, agent_y = game_state['self'][-1]
         
-        # Example: nearest coin features
         coins = game_state['coins']
         if coins:
             nearest_coin = min(coins, key=lambda c: abs(agent_x - c[0]) + abs(agent_y - c[1]))
@@ -62,7 +71,6 @@ class MyRLAgent:
         bombs = game_state['bombs']
         danger = int(any(abs(agent_x - bx) + abs(agent_y - by) <= 3 for (bx, by), _ in bombs))
 
-        # Bomb availability
         bomb_available = int(game_state['self'][2])
 
         # Return a simple tuple representing the state
@@ -70,16 +78,52 @@ class MyRLAgent:
 
     def act(self, game_state):
         """
-        Choose an action based on the current game state.
+        Choose an action based on a blend of Q-learning and rule-based actions.
         """
         state = self.state_to_features(game_state)
-        if random.random() < self.epsilon:
-            return np.random.choice(ACTIONS)
         
+        if random.random() < self.epsilon:
+            rb_action = rule_based.act(self.rb_agent, game_state)
+            if rb_action not in ACTIONS:
+                rb_action = np.random.choice(ACTIONS)  # Fallback to random action if invalid, had an error with this
+            # Learn from rule-based actions too
+            self.update_q_table(state, rb_action, None, 0)  # Store this action in Q-table
+            return rb_action
+
         if state in self.q_table:
             return ACTIONS[np.argmax(self.q_table[state])]
         else:
             return np.random.choice(ACTIONS)
+
+# trying different act methods
+#    def act(self, game_state):
+#        """
+#        Choose an action based on the current game state.
+#        Blend between rule-based and Q-learning actions.
+#        """
+#        state = self.state_to_features(game_state)
+#        
+#        if random.random() < self.epsilon:
+#            # Blend with rule-based agent's actions
+#            rb_action = rule_based.act(self.rb_agent, game_state)
+#            return rb_action
+#        
+#        if state in self.q_table:
+#            return ACTIONS[np.argmax(self.q_table[state])]
+#        else:
+#            return np.random.choice(ACTIONS)
+
+    def train_from_replay(self):
+        """
+        Sample a batch of transitions from the replay buffer and update Q-table.
+        """
+        if len(self.replay_buffer) < self.batch_size:
+            return  # Don't start training until we have enough samples
+
+        batch = random.sample(self.replay_buffer, self.batch_size)
+        for old_state, action, reward, new_state in batch:
+            self.update_q_table(old_state, action, new_state, reward)
+
 
     def update_q_table(self, old_state, action, new_state, reward):
         """
@@ -95,8 +139,9 @@ class MyRLAgent:
             future_rewards = 0
 
         # Q-learning update rule
-        self.q_table[old_state][action_index] += self.learning_rate * (reward + self.gamma * future_rewards - self.q_table[old_state][action_index])
-
+        self.q_table[old_state][action_index] += self.learning_rate * (
+            reward + self.gamma * future_rewards - self.q_table[old_state][action_index]
+        )
     def decay_epsilon(self):
         """
         Decay the exploration rate.
