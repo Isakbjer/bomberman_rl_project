@@ -53,11 +53,12 @@ class MyRLAgent:
 
     def state_to_features(self, game_state):
         """
-        Convert the game state to a feature representation.
+        Convert the game state to a comprehensive feature representation.
+        Features include coin distance, bomb proximity, enemy proximity, walls, and available bombs.
         """
         if game_state is None:
             return None
-        
+
         agent_x, agent_y = game_state['self'][-1]
         
         coins = game_state['coins']
@@ -66,34 +67,74 @@ class MyRLAgent:
             coin_distance = (nearest_coin[0] - agent_x, nearest_coin[1] - agent_y)
         else:
             coin_distance = (0, 0)
-
-        # Danger features (simplified)
+        
+        # Bombs: Check proximity of bombs and whether agent is in danger zone
         bombs = game_state['bombs']
-        danger = int(any(abs(agent_x - bx) + abs(agent_y - by) <= 3 for (bx, by), _ in bombs))
-
+        bomb_distances = []
+        danger = 0
+        for (bx, by), _ in bombs:
+            distance_to_bomb = abs(agent_x - bx) + abs(agent_y - by)
+            bomb_distances.append(distance_to_bomb)
+            if distance_to_bomb <= 3:
+                danger = 1
+        
+        if bomb_distances:
+            nearest_bomb_distance = min(bomb_distances)
+        else:
+            nearest_bomb_distance = float('inf')
+        
         bomb_available = int(game_state['self'][2])
+        
+        enemies = [game_state['others'][i][-1] for i in range(len(game_state['others']))]
+        if enemies:
+            nearest_enemy = min(enemies, key=lambda e: abs(agent_x - e[0]) + abs(agent_y - e[1]))
+            enemy_distance = (nearest_enemy[0] - agent_x, nearest_enemy[1] - agent_y)
+        else:
+            enemy_distance = (0, 0)
 
-        # Return a simple tuple representing the state
-        return (coin_distance, danger, bomb_available)
+        walls = game_state['field']
+        wall_nearby = int(walls[agent_x, agent_y - 1] == -1 or walls[agent_x, agent_y + 1] == -1 or
+                        walls[agent_x - 1, agent_y] == -1 or walls[agent_x + 1, agent_y] == -1)
+        
+        crate_nearby = int(walls[agent_x, agent_y - 1] == 1 or walls[agent_x, agent_y + 1] == 1 or
+                        walls[agent_x - 1, agent_y] == 1 or walls[agent_x + 1, agent_y] == 1)
+
+        features = (
+            coin_distance,            # Distance to the nearest coin
+            nearest_bomb_distance,    # Distance to the nearest bomb
+            danger,                   # Whether agent is in bomb danger zone
+            bomb_available,           # Whether the agent has bombs available
+            enemy_distance,           # Distance to the nearest enemy
+            wall_nearby,              # Whether walls are nearby
+            crate_nearby              # Whether crates are nearby
+        )
+
+        return features
 
     def act(self, game_state):
         """
         Choose an action based on a blend of Q-learning and rule-based actions.
         """
         state = self.state_to_features(game_state)
+        agent_position = game_state['self'][-1]
+        legal_moves = get_legal_moves(agent_position, game_state)
         
         if random.random() < self.epsilon:
             rb_action = rule_based.act(self.rb_agent, game_state)
-            if rb_action not in ACTIONS:
-                rb_action = np.random.choice(ACTIONS)  # Fallback to random action if invalid, had an error with this
-            # Learn from rule-based actions too
-            self.update_q_table(state, rb_action, None, 0)  # Store this action in Q-table
-            return rb_action
-
+            if rb_action in legal_moves:
+                return rb_action
+            else:
+                return np.random.choise(legal_moves)
         if state in self.q_table:
-            return ACTIONS[np.argmax(self.q_table[state])]
+            best_action_index = np.argmax(self.q_table[state])
+            best_action = ACTIONS[best_action_index]
+            if best_action in legal_moves:
+                return best_action
+            else:
+                return np.random.choice(legal_moves)  
         else:
-            return np.random.choice(ACTIONS)
+            return np.random.choice(legal_moves)
+                
 
 # trying different act methods
 #    def act(self, game_state):
@@ -112,6 +153,33 @@ class MyRLAgent:
 #            return ACTIONS[np.argmax(self.q_table[state])]
 #        else:
 #            return np.random.choice(ACTIONS)
+
+    def get_legal_moves(agent_position, game_state):
+        """
+        Returns the legal moves that the agent can take, considering walls and crates.
+        """
+        x, y = agent_position
+        field = game_state['field']  # The game board with walls (-1), empty spaces (0), and crates (1)
+        
+        legal_moves = []
+        
+        if field[x, y - 1] == 0:  
+            legal_moves.append('UP')
+        if field[x, y + 1] == 0:  
+            legal_moves.append('DOWN')
+        if field[x - 1, y] == 0: 
+            legal_moves.append('LEFT')
+        if field[x + 1, y] == 0:
+            legal_moves.append('RIGHT')
+        
+        # The WAIT action is always legal
+        legal_moves.append('WAIT')
+        
+        if game_state['self'][2]:  # game_state['self'][2] is the bomb flag 
+            legal_moves.append('BOMB')
+
+        return legal_moves
+    
 
     def train_from_replay(self):
         """
