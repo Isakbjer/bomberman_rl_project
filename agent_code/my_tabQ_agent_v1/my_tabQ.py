@@ -50,7 +50,6 @@ class MyRLAgent:
         """
         self.replay_buffer.append((old_state, action, reward, new_state))
 
-
     def state_to_features(self, game_state):
         """
         Convert the game state to a feature representation.
@@ -65,8 +64,8 @@ class MyRLAgent:
         field = game_state['field']
         local_grid = [
             [field[agent_x + dx, agent_y + dy] if 0 <= agent_x + dx < field.shape[0] and 0 <= agent_y + dy < field.shape[1] else -1
-            for dx in [-1, 0, 1]]
-            for dy in [-1, 0, 1]
+            for dy in [-1, 0, 1]]
+            for dx in [-1, 0, 1]
         ]
 
         coins = game_state['coins']
@@ -102,7 +101,7 @@ class MyRLAgent:
             danger,                   # Whether agent is in bomb danger zone
             bomb_available,           # Whether the agent has bombs available
             enemy_distance,           # Distance to the nearest enemy
-            local_grid                # 3x3 grid representing the local field
+            tuple(map(tuple, local_grid))  # 3x3 grid representing the local field as tuples
         )
 
         # Canonicalize the state features by applying all symmetries
@@ -170,16 +169,17 @@ class MyRLAgent:
         for old_state, action, reward, new_state in batch:
             self.update_q_table(old_state, action, new_state, reward)
 
-
     def update_q_table(self, old_state, action, new_state, reward):
         """
         Update the Q-table using the Q-learning update rule.
         """
+        old_state = tuple(old_state)
         if old_state not in self.q_table:
             self.q_table[old_state] = np.zeros(len(ACTIONS))
         
         action_index = ACTIONS.index(action)
         if new_state is not None:
+            new_state = tuple(new_state)
             future_rewards = np.max(self.q_table.get(new_state, np.zeros(len(ACTIONS))))
         else:
             future_rewards = 0
@@ -188,6 +188,7 @@ class MyRLAgent:
         self.q_table[old_state][action_index] += self.learning_rate * (
             reward + self.gamma * future_rewards - self.q_table[old_state][action_index]
         )
+    
     def decay_epsilon(self):
         """
         Decay the exploration rate.
@@ -202,7 +203,7 @@ def rotate_state_90(features):
     """
     (coin_x, coin_y), bomb_dist, danger, bomb_available, (enemy_x, enemy_y), local_grid = features
     rotated_grid = np.rot90(local_grid, k=-1).tolist()  
-    return ((-coin_y, coin_x), bomb_dist, danger, bomb_available, (-enemy_y, enemy_x), rotated_grid)
+    return ((-coin_y, coin_x), bomb_dist, danger, bomb_available, (-enemy_y, enemy_x), tuple(map(tuple, rotated_grid)))
 
 
 def rotate_state_180(features):
@@ -223,7 +224,7 @@ def flip_state_vertical(features):
     """
     (coin_x, coin_y), bomb_dist, danger, bomb_available, (enemy_x, enemy_y), local_grid = features
     flipped_grid = np.flipud(local_grid).tolist()  # Flip grid vertically
-    return ((coin_x, -coin_y), bomb_dist, danger, bomb_available, (enemy_x, -enemy_y), flipped_grid)
+    return ((coin_x, -coin_y), bomb_dist, danger, bomb_available, (enemy_x, -enemy_y), tuple(map(tuple, flipped_grid)))
 
 def flip_state_horizontal(features):
     """
@@ -231,7 +232,7 @@ def flip_state_horizontal(features):
     """
     (coin_x, coin_y), bomb_dist, danger, bomb_available, (enemy_x, enemy_y), local_grid = features
     flipped_grid = np.fliplr(local_grid).tolist()  # Flip grid horizontally
-    return ((-coin_x, coin_y), bomb_dist, danger, bomb_available, (-enemy_x, enemy_y), flipped_grid)
+    return ((-coin_x, coin_y), bomb_dist, danger, bomb_available, (-enemy_x, enemy_y), tuple(map(tuple, flipped_grid)))
 
 def canonicalize_state(features):
     """
