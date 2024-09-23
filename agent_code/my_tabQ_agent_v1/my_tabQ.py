@@ -117,7 +117,7 @@ class MyRLAgent:
         """
         state = self.state_to_features(game_state)
         agent_position = game_state['self'][-1]
-        legal_moves = get_legal_moves(agent_position, game_state)
+        legal_moves = self.get_legal_moves(agent_position, game_state)
         
         if random.random() < self.epsilon:
             rb_action = rule_based.act(self.rb_agent, game_state)
@@ -134,27 +134,8 @@ class MyRLAgent:
                 return np.random.choice(legal_moves)  
         else:
             return np.random.choice(legal_moves)
-                
 
-# trying different act methods
-#    def act(self, game_state):
-#        """
-#        Choose an action based on the current game state.
-#        Blend between rule-based and Q-learning actions.
-#        """
-#        state = self.state_to_features(game_state)
-#        
-#        if random.random() < self.epsilon:
-#            # Blend with rule-based agent's actions
-#            rb_action = rule_based.act(self.rb_agent, game_state)
-#            return rb_action
-#        
-#        if state in self.q_table:
-#            return ACTIONS[np.argmax(self.q_table[state])]
-#        else:
-#            return np.random.choice(ACTIONS)
-
-    def get_legal_moves(agent_position, game_state):
+    def get_legal_moves(self, agent_position, game_state):
         """
         Returns the legal moves that the agent can take, considering walls and crates.
         """
