@@ -1,29 +1,27 @@
 import re
-from collections import Counter
+from collections import defaultdict
 
 log_file_path = "game.log"
 
 # Regular expressions to detect specific events
 end_of_round_pattern = re.compile(r"WRAPPING UP ROUND")
 coin_collected_pattern = re.compile(r"picked up coin")
-bomb_dropped_pattern = re.compile(r"drops bomb")
-kill_pattern = re.compile(r"killed by bomb placed by Agent <my_tabQ_agent_v1>")
-win_pattern = re.compile(r"Agent <my_tabQ_agent_v1> wins the round")
-agent_survived_pattern = re.compile(r"Agent <my_tabQ_agent_v1> survived the round")
+death_pattern = re.compile(r"blown up|killed by")
 step_pattern = re.compile(r"STARTING STEP (\d+)")
-agent_died_pattern = re.compile(r"Agent <my_tabQ_agent_v1> killed by")
 
 def analyze_log(file_path):
-    # Initialize counters for different events
-    event_counter = Counter()
-    total_rounds = 0
-    total_wins = 0
-    total_survived_rounds = 0
-    total_survival_steps = 0
+    agent_stats = defaultdict(lambda: {
+        'total_coins': 0,
+        'round_coins': 0,
+        'wins': 0,
+        'survived_rounds': 0,
+        'total_rounds': 0,
+        'deaths': 0,
+        'alive': True
+    })
 
     # Variables to track the current round
     current_steps = 0
-    agent_survived = True
 
     # Read the log file line by line
     with open(file_path, 'r') as log_file:
@@ -33,74 +31,59 @@ def analyze_log(file_path):
             if step_match:
                 current_steps = int(step_match.group(1))
 
-            # Check if the agent was killed
-            if agent_died_pattern.search(line):
-                agent_survived = False
-                event_counter['KILLED_SELF'] += 1
+            # Check if the round is wrapping up
+            if end_of_round_pattern.search(line):
+                # Determine the winners of the round
+                alive_agents = [agent for agent, stats in agent_stats.items() if stats['alive']]
+                if len(alive_agents) == 1:
+                    # If only one agent is alive, they win
+                    agent_stats[alive_agents[0]]['wins'] += 1
+                else:
+                    # If multiple agents are alive, find the one(s) with the most coins
+                    max_coins = max(agent_stats[agent]['round_coins'] for agent in alive_agents)
+                    round_winners = [agent for agent in alive_agents if agent_stats[agent]['round_coins'] == max_coins]
+                    for winner in round_winners:
+                        agent_stats[winner]['wins'] += 1
+
+                # Update stats for all agents and reset for the next round
+                for agent, stats in agent_stats.items():
+                    if stats['alive']:
+                        stats['survived_rounds'] += 1
+                    stats['total_rounds'] += 1
+                    stats['round_coins'] = 0  # Reset only the coins for the current round
+                    stats['alive'] = True  # Reset alive status for the next round
+
+                continue  # Skip further checks for this line
+
+            # Check if an agent died (but count only once per death event)
+            if death_pattern.search(line):
+                agent_name = re.search(r"Agent <(.+?)>", line).group(1)
+                if agent_stats[agent_name]['alive']:  # Only count death once per round
+                    agent_stats[agent_name]['deaths'] += 1
+                    agent_stats[agent_name]['alive'] = False  # Mark as dead
 
             # Check for coin collection
             if coin_collected_pattern.search(line):
-                event_counter['COINS_COLLECTED'] += 1
+                agent_name = re.search(r"Agent <(.+?)>", line).group(1)
+                agent_stats[agent_name]['total_coins'] += 1  # Track total coins collected
+                agent_stats[agent_name]['round_coins'] += 1  # Track coins for the current round
 
-            # Check for bomb drop
-            if bomb_dropped_pattern.search(line):
-                event_counter['BOMBS_DROPPED'] += 1
-
-            # Check for kills by the agent
-            if kill_pattern.search(line):
-                event_counter['KILLS'] += 1
-
-            # Check for wins by the agent
-            if win_pattern.search(line):
-                total_wins += 1
-
-            # Check if the agent survived the round
-            if agent_survived_pattern.search(line):
-                total_survived_rounds += 1
-
-            # Check if the round is wrapping up
-            if end_of_round_pattern.search(line):
-                total_rounds += 1
-                # If the agent survived, add the steps survived in this round
-                if agent_survived:
-                    total_survival_steps += current_steps
-                # Reset for next round
-                agent_survived = True
-                current_steps = 0
-
-    return total_rounds, total_wins, total_survived_rounds, total_survival_steps, event_counter
+    return agent_stats
 
 if __name__ == "__main__":
-    total_rounds, total_wins, total_survived_rounds, total_survival_steps, event_counts = analyze_log(log_file_path)
+    agent_stats = analyze_log(log_file_path)
 
-    win_rate = (total_wins / total_rounds) * 100 if total_rounds > 0 else 0
-    survival_rate = (total_survived_rounds / total_rounds) * 100 if total_rounds > 0 else 0
-    average_survival_steps = total_survival_steps / total_rounds if total_rounds > 0 else 0
+    for agent, stats in agent_stats.items():
+        total_rounds = stats['total_rounds']
+        survival_rate = (stats['survived_rounds'] / total_rounds) * 100 if total_rounds > 0 else 0
+        win_rate = (stats['wins'] / total_rounds) * 100 if total_rounds > 0 else 0
+        avg_coins = stats['total_coins'] / total_rounds if total_rounds > 0 else 0
 
-    print(f"Total Rounds: {total_rounds}")
-    print(f"Win Rate: {win_rate:.2f}%")
-    print(f"Survival Rate: {survival_rate:.2f}%")
-    print(f"Average Survival Steps: {average_survival_steps:.2f}")
-    print(f"Total Coins Collected: {event_counts['COINS_COLLECTED']}")
-    print(f"Total Bombs Dropped: {event_counts['BOMBS_DROPPED']}")
-    print(f"Total Kills: {event_counts['KILLS']}")
-
-# need to get better ways to test this data, so far the eye test of how the bot is doing is still better
-
-# first time running it on 100 rounds before training the results are:
-#Total Rounds: 100
-#Win Rate: 0.00%
-#Survival Rate: 0.00%
-#Average Survival Steps: 350.98
-#Total Coins Collected: 5000
-#Total Bombs Dropped: 3395
-#Total Kills: 0
-
-# After training 400 rounds, then tested again on 100 rounds
-#otal Rounds: 100
-#Win Rate: 0.00%
-#Survival Rate: 0.00%
-#Average Survival Steps: 345.35
-#Total Coins Collected: 5000
-#Total Bombs Dropped: 3385
-#Total Kills: 0
+        print(f"Agent: {agent}")
+        print(f"  Win Rate: {win_rate:.2f}%")
+        print(f"  Survival Rate: {survival_rate:.2f}%")
+        print(f"  Average Coins Collected: {avg_coins:.2f}")
+        print(f"  Total Deaths: {stats['deaths']}")
+        print(f"  Total Rounds Played: {total_rounds}")
+        print(f"  Total Wins: {stats['wins']}")
+        print("------------------------------")
