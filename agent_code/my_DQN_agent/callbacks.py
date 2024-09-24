@@ -1,20 +1,159 @@
 import numpy as np
+from collections import deque
 from .my_DQN import MyDQNAgent, ACTIONS
+
+from types import SimpleNamespace
+import logging
+
+try:
+    from ..rule_based_agent import callbacks as rule_based
+except ImportError:
+    rule_based = None
+
+INPUT_DIM = 29
+
+ENEMY = 2
+
+UP, RIGHT, DOWN, LEFT = range(4)
+DIRECTIONS = {
+    (0, -1): UP,
+    (1, 0): RIGHT,
+    (0, 1): DOWN,
+    (-1, 0): LEFT,
+}
+
+def valid_moves(field, agent_x, agent_y, bomb, enemy_pos):
+    ret = [4]  # WAIT
+    
+    for dir, idx in DIRECTIONS.items():
+        tile = (agent_x + dir[0], agent_y + dir[1])
+        if field[*tile] != 0:
+            continue
+        if tile in enemy_pos:
+            continue
+        ret.append(idx)
+    
+    if bomb:
+        ret.append(5)
+
+    return ret
+
+
+def bfs(start, field, cb):
+    q = deque([(start, None, 0)])
+    seen = {start}
+
+    while q:
+        current, dir_from_start, dist = q.popleft()
+        for dir in DIRECTIONS.keys():
+            neigh = (current[0] + dir[0], current[1] + dir[1])
+            if neigh in seen:
+                continue
+
+            if neigh[0] < 0 or neigh[1] < 0:
+                continue
+            if neigh[0] >= field.shape[0] or neigh[1] >= field.shape[1]:
+                continue
+            if field[*neigh] == -1:  # wall
+                continue
+
+            seen.add(neigh)
+
+            cur_dir_from_start = dir if dir_from_start is None else dir_from_start
+            if cb(neigh, cur_dir_from_start, dist + 1):
+                return
+
+            if field[*neigh] == 0:
+                q.append((neigh, cur_dir_from_start, dist + 1))
+
 
 def setup(self):
     """
     Initialize the DQN agent.
     """
-    input_dim = 4  # Number of features in the state vector
+    input_dim = INPUT_DIM # Number of features in the state vector
     output_dim = len(ACTIONS)
-    self.agent = MyDQNAgent(input_dim=input_dim, output_dim=output_dim)
+    self.agent = MyDQNAgent(input_dim=input_dim, output_dim=output_dim, training=self.train)
+    if self.train:
+        self.rb_agent = SimpleNamespace()
+        self.rb_agent.logger = logging.getLogger("rule_based")
+        self.rb_agent.train = False
+        rule_based.setup(self.rb_agent)
 
 def act(self, game_state: dict):
     """
     Choose an action using the DQN agent.
     """
-    state = state_to_features(game_state)
-    return self.agent.act(state, train=self.train)
+    if self.train and len(self.agent.replay_buffer) < 10000:
+        return rule_based.act(self.rb_agent, game_state)
+
+    state, valid_moves = state_to_features(game_state)
+    return self.agent.act(state, valid_moves, train=self.train)
+
+def get_bomb_arm(field, bombs, agent_x, agent_y):
+    for (bomb_x, bomb_y), timer in bombs:
+        if agent_x == bomb_x and abs(agent_y - bomb_y) <= 3:
+            lo, hi = min(agent_y, bomb_y), max(agent_y, bomb_y)
+            if not(any(field[agent_x, lo:hi+1] == 1)):
+                if agent_y == bomb_y: # center
+                    return [0.5, 0.5, 0.5, 0.5], timer
+                elif agent_y > bomb_y: # up arm
+                    return [1, 0.5, 0, 0.5], timer
+                else: # down arm
+                    return [0, 0.5, 1, 0.5], timer
+        elif agent_y == bomb_y and abs(agent_x - bomb_x) <= 3:
+            lo, hi = min(agent_x, bomb_x), max(agent_x, bomb_x)
+            if not(any(field[lo:hi+1, agent_y] == 1)):
+                if agent_x == bomb_x:
+                    return [0.5, 0.5, 0.5, 0.5], timer
+                elif agent_x > bomb_x:
+                    return [0.5, 1, 0.5, 0], timer
+                else:
+                    return [0.5, 0, 0.5, 1], timer
+    return [0.5, 0.5, 0.5, 0.5], -1
+
+
+# def bounds_check(field, coords):
+#     if coords[0] < 0 or coords[1] < 0:
+#         return False
+#     if coords[0] >= field.shape[0] or coords[1] >= field.shape[1]:
+#         return False
+#     return True
+
+
+def check_own_bomb_trap(field, agent_x, agent_y):
+    d = 5
+
+    for dir in DIRECTIONS.keys():
+        for i in range(1, 3+1):
+            coords = [agent_x + dir[0] * i, agent_y + dir[1] * i]
+
+            # if not bounds_check(field, coords):
+            #     break
+            if field[*coords] != 0:
+                break
+
+            axis = 1 - dir.index(0)
+            other_axis = 1 - axis
+
+            for j in (-1, 1):
+                coords2 = [*coords]
+                coords2[other_axis] += j
+
+                # if not bounds_check(field, coords2):
+                #     continue
+                if field[*coords2] == 0:
+                    d = min(d, i + 1)
+            
+            if i == 3:
+                coords2 = [*coords]
+                coords2[axis] += dir[axis]
+
+                # if bounds_check(field, coords2) and field[*coords2] == 0:
+                if field[*coords2] == 0:
+                    d = min(d, i + 1)
+    
+    return d == 5
 
 def state_to_features(game_state: dict) -> np.array:
     if game_state is None:
@@ -27,82 +166,70 @@ def state_to_features(game_state: dict) -> np.array:
     coins = game_state['coins']
     bombs = game_state['bombs']
     enemies = game_state['others']
+    enemy_pos = {x[-1] for x in enemies}
+    bombdict = {(x, y): t for ((x, y), t) in bombs}
 
-    # Initialize masks
-    field_layout_mask = np.zeros_like(field)  
-    coin_mask = np.zeros_like(field)  
-    explosion_danger_mask = np.zeros_like(field) 
-    future_explosion_mask = np.zeros_like(field)  
-    bomb_mask = np.zeros_like(field) 
-    enemy_position_mask = np.zeros_like(field) 
-    escape_routes_mask = np.zeros_like(field) 
+    coin_dir, crate_dir, enemy_dir = [None]*3
 
-    # Field layout: Obstacles and crates
-    field_layout_mask[np.where(field == -1)] = -1  # Walls
-    field_layout_mask[np.where(field == 1)] = 1  # Crates
+    def obj_cb(pos, dir_from_start, dist):
+        nonlocal coin_dir, crate_dir, enemy_dir
 
-    for coin in coins:
-        coin_mask[coin] = 1
+        feat = [0, 0, 0, 0]
+        feat[DIRECTIONS[dir_from_start]] = 1
 
-    # Current explosion danger 
-    explosion_danger_mask[np.where(explosion_map > 0)] = 1 
-
-    # Future explosion danger (from bombs)
-    for (bomb_x, bomb_y), countdown in bombs:
-        # Bomb locations contribute to future danger
-        future_explosion_mask[bomb_x, bomb_y] = 1
+        if field[*pos] == 1 and not crate_dir:
+            crate_dir = feat
+        elif pos in coins and not coin_dir:
+            coin_dir = feat
+        elif pos in enemy_pos and not enemy_dir:
+            enemy_dir = feat
         
-        # Mark the blast radius in all four directions (up, down, left, right)
-        for (i, j) in [(bomb_x + h, bomb_y) for h in range(-3, 4)] + [(bomb_x, bomb_y + h) for h in range(-3, 4)]:
-            if 0 <= i < field.shape[0] and 0 <= j < field.shape[1] and field[i, j] != -1:  # Don't mark past walls
-                future_explosion_mask[i, j] = 1
+        return crate_dir and coin_dir and enemy_dir
+    
+    # Find objects
+    bfs((agent_x, agent_y), field, obj_cb)
+    
+    coin_dir = coin_dir or [0, 0, 0, 0]
+    crate_dir = crate_dir or [0, 0, 0, 0]
+    enemy_dir = enemy_dir or [0, 0, 0, 0]
 
-    # Bombs: Positions and blast radius
-    for (bomb_x, bomb_y), countdown in bombs:
-        bomb_mask[bomb_x, bomb_y] = countdown
-        for (i, j) in [(bomb_x + h, bomb_y) for h in range(-3, 4)] + [(bomb_x, bomb_y + h) for h in range(-3, 4)]:
-            if 0 <= i < field.shape[0] and 0 <= j < field.shape[1]:
-                bomb_mask[i, j] = min(bomb_mask[i, j], countdown)
+    bomb_arm, timer = get_bomb_arm(field, bombs, agent_x, agent_y)
+    own_bomb_trap = int(check_own_bomb_trap(field, agent_x, agent_y))
 
-    for enemy in enemies:
-        enemy_position_mask[enemy[-1]] = 1
+    crates_in_blast_radius = [0, 0, 0, 0]
+    enemies_in_blast_radius = [0, 0, 0, 0]
 
-    # Escape routes: Identify free tiles for escape, want to maybe make this better, make it a concrete function later on?
-    free_tiles = (field == 0) & (explosion_map == 0) & (bomb_mask == 0) & (future_explosion_mask == 0)
-    escape_routes_mask[np.where(free_tiles)] = 1
+    for dir, dir_ind in DIRECTIONS.items():
+        cur_x, cur_y = agent_x, agent_y
+        for i in range(3):
+            cur_x += dir[0]
+            cur_y += dir[1]
+            # if not bounds_check(field, (cur_x, cur_y)):
+            #     break
+            if field[cur_x, cur_y] == -1:
+                break
+            elif field[cur_x, cur_y] == 1 and not crates_in_blast_radius[dir_ind]:
+                crates_in_blast_radius[dir_ind] = (3 - i)/3
+            elif (cur_x, cur_y) in enemy_pos and not enemies_in_blast_radius[dir_ind]:
+                enemies_in_blast_radius[dir_ind] = (3 - i)/3
+    
+    movement_traps = [0, 0, 0, 0]
+    for dir, dir_ind in DIRECTIONS.items():
+        cur_x, cur_y = agent_x + dir[0], agent_y + dir[1]
+        # if not bounds_check(field, (cur_x, cur_y)):
+        #     continue
+        if bombdict.get((cur_x, cur_y), 5) == 0 or explosion_map[cur_x, cur_y] > 1:
+            movement_traps[dir_ind] = 1
+    
+    return np.concatenate([
+        coin_dir,
+        crate_dir,
+        enemy_dir,
+        bomb_arm,
+        #[timer],
+        [own_bomb_trap],
+        crates_in_blast_radius,
+        enemies_in_blast_radius,
+        movement_traps
+    ]), valid_moves(field, agent_x, agent_y, game_state['self'][-2], enemy_pos)
 
-    # **Valid Actions**: Determine possible moves
-    valid_actions = [0, 0, 0, 0, 0, 0]  # [UP, RIGHT, DOWN, LEFT, WAIT, BOMB]
-    if agent_y > 0 and free_tiles[agent_x, agent_y - 1]:
-        valid_actions[0] = 1  # UP
-    if agent_x < field.shape[0] - 1 and free_tiles[agent_x + 1, agent_y]:
-        valid_actions[1] = 1  # RIGHT
-    if agent_y < field.shape[1] - 1 and free_tiles[agent_x, agent_y + 1]:
-        valid_actions[2] = 1  # DOWN
-    if agent_x > 0 and free_tiles[agent_x - 1, agent_y]:
-        valid_actions[3] = 1  # LEFT
-    valid_actions[4] = 1  # WAIT
-    if game_state['self'][2] and free_tiles[agent_x, agent_y]:
-        valid_actions[5] = 1  # BOMB
-
-    # Combine masks into a multi-channel array
-    combined_features = np.stack([
-        field_layout_mask,
-        coin_mask,
-        explosion_danger_mask, 
-        future_explosion_mask,
-        bomb_mask,
-        enemy_position_mask,
-        escape_routes_mask
-    ])
-
-    additional_features = np.array([
-        int(game_state['self'][2]),  # Bomb availability
-        1 if explosion_map[agent_x, agent_y] > 0 else 0,  # Immediate danger
-        *valid_actions
-    ], dtype=float)
-
-    combined_features_flat = combined_features.flatten()
-    features = np.concatenate([combined_features_flat, additional_features])
-
-    return features

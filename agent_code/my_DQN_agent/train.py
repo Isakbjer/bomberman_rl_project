@@ -3,23 +3,23 @@ import pickle
 from collections import deque
 from .my_DQN import MyDQNAgent, ACTIONS
 import events as e
-from .callbacks import state_to_features
+from .callbacks import state_to_features, INPUT_DIM
 
 def setup_training(self):
     self.transitions = deque(maxlen=3)
-    self.agent = MyDQNAgent(input_dim=4, output_dim=len(ACTIONS))
+    # self.agent = MyDQNAgent(input_dim=INPUT_DIM, output_dim=len(ACTIONS), training=True)
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: list):
-    old_state = state_to_features(old_game_state)
-    new_state = state_to_features(new_game_state)
+    old_state, _ = state_to_features(old_game_state)
+    new_state, _ = state_to_features(new_game_state)
     reward = reward_from_events(self, events)
 
     self.agent.remember(old_state, self_action, new_state, reward)
     self.agent.replay()
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: list):
-    self.logger.debug(f"End of round with events: {events}")
-    self.agent.remember(state_to_features(last_game_state), last_action, None, reward_from_events(self, events))
+    self.logger.debug(f"End of round with events: {events} last action {last_action}")
+    self.agent.remember(state_to_features(last_game_state)[0], last_action, None, reward_from_events(self, events))
 
     # Save the model
     with open("my_DQN_model.pt", "wb") as file:
