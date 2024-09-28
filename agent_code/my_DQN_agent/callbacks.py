@@ -84,8 +84,8 @@ def act(self, game_state: dict):
     """
     Choose an action using the DQN agent.
     """
-    if self.train and len(self.agent.replay_buffer) < 10000:
-        return rule_based.act(self.rb_agent, game_state)
+    # if self.train and len(self.agent.replay_buffer) < 10000:
+    #     return rule_based.act(self.rb_agent, game_state)
 
     state, valid_moves = state_to_features(game_state)
     return self.agent.act(state, valid_moves, train=self.train)
