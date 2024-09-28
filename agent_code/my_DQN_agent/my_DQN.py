@@ -1,4 +1,5 @@
 import torch
+import os
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
@@ -11,9 +12,9 @@ ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 class DQNetwork(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(DQNetwork, self).__init__()
-        self.fc1 = nn.Linear(input_dim, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, output_dim)
+        self.fc1 = nn.Linear(input_dim, 32)
+        self.fc2 = nn.Linear(32, 16)
+        self.fc3 = nn.Linear(16, output_dim)
         
     def forward(self, x):
         x = F.relu(self.fc1(x))
@@ -21,8 +22,11 @@ class DQNetwork(nn.Module):
         return self.fc3(x)
 
 class MyDQNAgent:
-    def __init__(self, input_dim, output_dim, learning_rate=0.001):
+    def __init__(self, input_dim, output_dim, training, learning_rate=0.001):
         self.q_network = DQNetwork(input_dim, output_dim)
+        if not training:
+            with open("my_DQN_model.pt", "rb") as f:
+                self.q_network.load_state_dict(torch.load(f))
         self.target_network = DQNetwork(input_dim, output_dim)
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=learning_rate)
         self.criterion = nn.MSELoss()
@@ -31,7 +35,7 @@ class MyDQNAgent:
         self.replay_buffer = deque(maxlen=2000)
         self.batch_size = 64
         self.gamma = 0.99
-        self.epsilon = 1.0
+        self.epsilon = 1
         self.epsilon_min = 0.1
         self.epsilon_decay = 0.995
         
@@ -41,12 +45,12 @@ class MyDQNAgent:
     def update_target_network(self):
         self.target_network.load_state_dict(self.q_network.state_dict())
 
-    def act(self, state, train=True):
+    def act(self, state, valid_moves, train=True):
         if train and random.random() < self.epsilon:
-            return np.random.choice(ACTIONS)
+            return ACTIONS[np.random.choice(valid_moves)]
         state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
         q_values = self.q_network(state_tensor)
-        return ACTIONS[torch.argmax(q_values).item()]
+        return ACTIONS[torch.argmax(q_values[:, valid_moves]).item()]
 
     def remember(self, state, action, next_state, reward):
         action_idx = ACTIONS.index(action)
@@ -71,7 +75,7 @@ class MyDQNAgent:
         # Target Q-values for next states
         next_q_values = torch.zeros(self.batch_size)
         if len(next_states_tensor) > 0:
-            next_q_values[:len(next_states_tensor)] = self.target_network(next_states_tensor).max(1)[0].detach()
+            next_q_values[[ns is not None for ns in next_states]] = self.target_network(next_states_tensor).max(1)[0].detach()
 
         target_q_values = rewards_tensor + self.gamma * next_q_values
 
@@ -84,3 +88,7 @@ class MyDQNAgent:
         # Decay exploration rate
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
+        
+        # Synchronize target network
+        self.target_network.load_state_dict(self.q_network.state_dict())
+
