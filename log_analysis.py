@@ -19,7 +19,8 @@ def analyze_log(file_path):
         'survived_rounds': 0,
         'total_rounds': 0,
         'deaths': 0,
-        'alive': True
+        'alive': True,
+        'survival_time': 0
     })
 
     survival_times = defaultdict(list)  # Tracks survival times for all agents
@@ -53,9 +54,12 @@ def analyze_log(file_path):
                 for agent, stats in agent_stats.items():
                     if stats['alive']:
                         stats['survived_rounds'] += 1
+
+                    # Record survival time and reset it for the next round
+                    survival_times[agent].append(stats['survival_time'])
                     stats['total_rounds'] += 1
                     stats['round_coins'] = 0  # Reset only the coins for the current round
-                    survival_times[agent].append(current_steps)  # Track survival time
+                    stats['survival_time'] = 0  # Reset survival time for the next round
                     stats['alive'] = True  # Reset alive status for the next round
 
                 continue  # Skip further checks for this line
@@ -73,58 +77,90 @@ def analyze_log(file_path):
                 agent_stats[agent_name]['total_coins'] += 1  # Track total coins collected
                 agent_stats[agent_name]['round_coins'] += 1  # Track coins for the current round
 
+            # Increment survival time for all alive agents
+            for agent, stats in agent_stats.items():
+                if stats['alive']:
+                    stats['survival_time'] = current_steps  # Track current step as survival time
+
     return agent_stats, survival_times
 
 # Run analysis
 if __name__ == "__main__":
-  agent_stats, survival_times = analyze_log(log_file_path)
+    agent_stats, survival_times = analyze_log(log_file_path)
 
-  # Plot metrics for each agent
-  plt.figure(figsize=(15, 10))
+    # Calculate and print statistics for each agent
+    for agent, stats in agent_stats.items():
+        total_rounds = stats['total_rounds']
+        survival_rate = (stats['survived_rounds'] / total_rounds) * 100 if total_rounds > 0 else 0
+        win_rate = (stats['wins'] / total_rounds) * 100 if total_rounds > 0 else 0
+        avg_coins = stats['total_coins'] / total_rounds if total_rounds > 0 else 0
+        avg_survival_time = sum(survival_times[agent]) / total_rounds if total_rounds > 0 else 0
 
-  # Subplot 1: Plot survival times for each agent
-  plt.subplot(2, 2, 1)
-  for agent, times in survival_times.items():
-      plt.plot(range(len(times)), times, label=f"Survival Time - {agent}")
+        print(f"Agent: {agent}")
+        print(f"  Win Rate: {win_rate:.2f}%")
+        print(f"  Survival Rate: {survival_rate:.2f}%")
+        print(f"  Average Coins Collected: {avg_coins:.2f}")
+        print(f"  Average Survival Time: {avg_survival_time:.2f} steps")
+        print(f"  Total Deaths: {stats['deaths']}")
+        print(f"  Total Rounds Played: {total_rounds}")
+        print(f"  Total Wins: {stats['wins']}")
+        print("------------------------------")
 
-  plt.title('Survival Time Over Time')
-  plt.xlabel('Game')
-  plt.ylabel('Survival Time (steps)')
-  plt.legend()
+    # Define different line styles, colors, and markers for each agent
+    line_styles = ['-', '--', '-.', ':']
+    markers = ['o', 's', 'D', '^']  # Circle, Square, Diamond, Triangle
+    colors = ['b', 'g', 'r', 'c']  # Blue, Green, Red, Cyan
 
-  # Subplot 2: Plot win rate for each agent
-  plt.subplot(2, 2, 2)
-  for agent, stats in agent_stats.items():
-      total_rounds = stats['total_rounds']
-      win_rate = (stats['wins'] / total_rounds) * 100 if total_rounds > 0 else 0
-      plt.bar(agent, win_rate)
+    # Plot metrics for each agent
+    plt.figure(figsize=(15, 10))
 
-  plt.title('Win Rate for Each Agent')
-  plt.xlabel('Agent')
-  plt.ylabel('Win Rate (%)')
+    # Subplot 1: Plot survival times for each agent
+    plt.subplot(2, 2, 1)
+    for idx, (agent, times) in enumerate(survival_times.items()):
+        plt.plot(range(len(times)), times, 
+                label=f"Survival Time - {agent}", 
+                linestyle=line_styles[idx % len(line_styles)], 
+                color=colors[idx % len(colors)],
+                linewidth=2) 
 
-  # Subplot 3: Plot survival rate for each agent
-  plt.subplot(2, 2, 3)
-  for agent, stats in agent_stats.items():
-      total_rounds = stats['total_rounds']
-      survival_rate = (stats['survived_rounds'] / total_rounds) * 100 if total_rounds > 0 else 0
-      plt.bar(agent, survival_rate)
+    plt.title('Survival Time Over Time')
+    plt.xlabel('Game')
+    plt.ylabel('Survival Time (steps)')
+    plt.legend()
 
-  plt.title('Survival Rate for Each Agent')
-  plt.xlabel('Agent')
-  plt.ylabel('Survival Rate (%)')
+    # Subplot 2: Plot win rate for each agent
+    plt.subplot(2, 2, 2)
+    for agent, stats in agent_stats.items():
+        total_rounds = stats['total_rounds']
+        win_rate = (stats['wins'] / total_rounds) * 100 if total_rounds > 0 else 0
+        plt.bar(agent, win_rate)
 
-  # Subplot 4: Plot average coins collected for each agent
-  plt.subplot(2, 2, 4)
-  for agent, stats in agent_stats.items():
-      total_rounds = stats['total_rounds']
-      avg_coins = stats['total_coins'] / total_rounds if total_rounds > 0 else 0
-      plt.bar(agent, avg_coins)
+    plt.title('Win Rate for Each Agent')
+    plt.xlabel('Agent')
+    plt.ylabel('Win Rate (%)')
 
-  plt.title('Average Coins Collected for Each Agent')
-  plt.xlabel('Agent')
-  plt.ylabel('Average Coins')
+    # Subplot 3: Plot survival rate for each agent
+    plt.subplot(2, 2, 3)
+    for agent, stats in agent_stats.items():
+        total_rounds = stats['total_rounds']
+        survival_rate = (stats['survived_rounds'] / total_rounds) * 100 if total_rounds > 0 else 0
+        plt.bar(agent, survival_rate)
 
-  # Display the plots
-  plt.tight_layout()
-  plt.show()
+    plt.title('Survival Rate for Each Agent')
+    plt.xlabel('Agent')
+    plt.ylabel('Survival Rate (%)')
+
+    # Subplot 4: Plot average coins collected for each agent
+    plt.subplot(2, 2, 4)
+    for agent, stats in agent_stats.items():
+        total_rounds = stats['total_rounds']
+        avg_coins = stats['total_coins'] / total_rounds if total_rounds > 0 else 0
+        plt.bar(agent, avg_coins)
+
+    plt.title('Average Coins Collected for Each Agent')
+    plt.xlabel('Agent')
+    plt.ylabel('Average Coins')
+
+    # Display the plots
+    plt.tight_layout()
+    plt.show()
