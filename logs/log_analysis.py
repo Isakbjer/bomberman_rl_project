@@ -1,7 +1,8 @@
 import re
+import os
 from collections import defaultdict
 
-log_file_path = "game.log"
+log_file = os.path.join("logs", "game.log")
 
 # Regular expressions to detect specific events
 end_of_round_pattern = re.compile(r"WRAPPING UP ROUND")

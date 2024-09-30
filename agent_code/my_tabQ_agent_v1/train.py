@@ -1,55 +1,119 @@
-from collections import deque
+from collections import deque, namedtuple
 import pickle
 from typing import List
+import numpy as np
 import events as e
-from .my_tabQ import MyRLAgent, ACTIONS
+from .callbacks import state_to_features, ACTIONS
+
+# Transition tuple to store (s, a, r, s')
+Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
+
+# Hyperparameters, want to test with different ones
+LEARNING_RATE = 0.1
+DISCOUNT_FACTOR = 0.9  # Gamma
+TRANSITION_HISTORY_SIZE = 3  
 
 def setup_training(self):
     """
     Initialize training-related variables.
     """
-    self.agent.transitions = deque(maxlen=3)
+    self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
+    self.logger.info("Training setup complete. Transition buffer initialized.")
 
-def game_events_occurred(self, old_game_state, self_action, new_game_state, events: List[str]):
+def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
     """
-    Handle game events, store transitions in replay buffer, and perform Q-learning updates.
+    This is called every step to process events and update the agent.
     """
-    old_state = self.agent.state_to_features(old_game_state)
-    new_state = self.agent.state_to_features(new_game_state)
+    old_state = state_to_features(old_game_state)
+    new_state = state_to_features(new_game_state)
+    
+    old_coin_distance = distance_to_nearest_coin(old_game_state)
+    new_coin_distance = distance_to_nearest_coin(new_game_state)
+
+    if new_coin_distance < old_coin_distance:
+        events.append("MOVED_CLOSER_TO_COIN")
+
+    # Reward calculation based on events
     reward = reward_from_events(self, events)
 
-    self.agent.store_transition(old_state, self_action, reward, new_state)
+    # Store the transition
+    self.transitions.append(Transition(old_state, self_action, new_state, reward))
 
-    # Train from replay buffer
-    self.agent.train_from_replay()
+    # Update Q-table
+    update_q_table(self, old_state, self_action, reward, new_state)
 
-    self.agent.decay_epsilon()
+    self.logger.info(f"Processed game events: {events}, updated Q-table.")
 
-
-def end_of_round(self, last_game_state, last_action, events: List[str]):
+def distance_to_nearest_coin(game_state: dict) -> int:
     """
-    Called at the end of each game to finalize Q-learning updates and save the Q-table.
+    Calculate the Manhattan distance to the nearest coin from the agent's position.
     """
-    last_state = self.agent.state_to_features(last_game_state)
+    agent_x, agent_y = game_state['self'][-1]
+    coins = game_state['coins']
+    
+    if not coins:
+        return float('inf')  # No coins on the board
+
+    # Return the Manhattan distance to the nearest coin
+    return min(abs(agent_x - coin[0]) + abs(agent_y - coin[1]) for coin in coins)
+
+
+def update_q_table(self, old_state, action, reward, new_state):
+    """
+    Update Q-table using the Q-learning update rule.
+    """
+    action_index = ACTIONS.index(action)
+
+    # Ensure the state is initialized in the Q-table
+    if old_state not in self.q_table:
+        self.q_table[old_state] = np.zeros(len(ACTIONS))
+
+    # Calculate the maximum Q-value for the next state
+    if new_state is not None and new_state in self.q_table:
+        future_rewards = np.max(self.q_table[new_state])
+    else:
+        future_rewards = 0
+
+    # Q-learning update rule
+    self.q_table[old_state][action_index] += LEARNING_RATE * (
+        reward + DISCOUNT_FACTOR * future_rewards - self.q_table[old_state][action_index]
+    )
+
+    self.logger.info(f"Q-table updated for state {old_state} and action {action}")
+
+def end_of_round(self, last_game_state: dict, last_action: str, events: list):
+    """
+    Finalizes the round, updates the Q-table, logs end-of-round events, and saves the Q-table.
+    """
+    last_state = state_to_features(last_game_state)
     reward = reward_from_events(self, events)
 
-    self.agent.update_q_table(last_state, last_action, None, reward)
-    self.agent.decay_epsilon()
+    # Update the Q-table with the final state-action pair for this round
+    update_q_table(self, last_state, last_action, reward, None)
 
-    # Save the Q-table
+    # Log whether the agent died or survived
+    if 'GOT_KILLED' in events or 'KILLED_SELF' in events:
+        self.logger.info("End of round: Agent died.")
+    else:
+        self.logger.info("End of round: Agent survived.")
+
+    # Save the Q-table after the round
     with open("q_table.pkl", "wb") as file:
-        pickle.dump(self.agent.q_table, file)
+        pickle.dump(self.q_table, file)
 
-def reward_from_events(self, events: List[str]) -> int:
+    self.logger.info("Q-table saved after the round.")
+
+def reward_from_events(self, events: list) -> int:
     """
-    Assign rewards to various events to encourage desired behaviors.
+    Assign rewards to events and log key events that occur.
     """
+    # added event to make the rewards less sparse
     game_rewards = {
         e.COIN_COLLECTED: 5,
-        e.KILLED_OPPONENT: 7,
-        e.KILLED_SELF: -25,
+        e.KILLED_OPPONENT: 15,
+        e.KILLED_SELF: -15,
         e.INVALID_ACTION: -1,
-        e.BOMB_DROPPED: 0.0,
+        e.BOMB_DROPPED: 0.1,
         e.MOVED_LEFT: 0.01,
         e.MOVED_RIGHT: 0.01,
         e.MOVED_UP: 0.01,
@@ -58,11 +122,29 @@ def reward_from_events(self, events: List[str]) -> int:
         e.CRATE_DESTROYED: 1,
         e.COIN_FOUND: 2,
         e.GOT_KILLED: -5,
-        e.OPPONENT_ELIMINATED: 3,
+        e.OPPONENT_ELIMINATED: 15,
         e.SURVIVED_ROUND: 1.5,
-        'ESCAPED_DANGER': 2,
-        'MOVE_CLOSER_TO_COIN': 0.5,
+        'MOVED_CLOSER_TO_COIN': 0.5  # Custom event reward
     }
 
-    reward_sum = sum(game_rewards.get(event, 0) for event in events)
+    reward_sum = 0
+
+    for event in events:
+        # Log when specific events happen
+        if event == e.COIN_COLLECTED:
+            self.logger.info("Coin collected!")
+        elif event == e.KILLED_OPPONENT:
+            self.logger.info("Opponent killed!")
+        elif event == e.KILLED_SELF:
+            self.logger.info("Agent killed itself.")
+        elif event == e.CRATE_DESTROYED:
+            self.logger.info("Crate destroyed!")
+        elif event == e.GOT_KILLED:
+            self.logger.info("Agent died to a bomb!")
+
+        # Assign rewards
+        reward_sum += game_rewards.get(event, 0)
+
+    # Log the total reward for this step
+    self.logger.info(f"Total reward for this step: {reward_sum}")
     return reward_sum
