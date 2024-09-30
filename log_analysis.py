@@ -37,13 +37,17 @@ def analyze_log(file_path):
             if end_of_round_pattern.search(line):
                 # Determine the winners of the round
                 alive_agents = [agent for agent, stats in agent_stats.items() if stats['alive']]
-                if len(alive_agents) == 1:
-                    agent_stats[alive_agents[0]]['wins'] += 1
-                else:
-                    max_coins = max(agent_stats[agent]['round_coins'] for agent in alive_agents)
-                    round_winners = [agent for agent in alive_agents if agent_stats[agent]['round_coins'] == max_coins]
-                    for winner in round_winners:
-                        agent_stats[winner]['wins'] += 1
+
+                if alive_agents:
+                    if any(agent_stats[agent]['round_coins'] > 0 for agent in alive_agents):
+                        max_coins = max(agent_stats[agent]['round_coins'] for agent in alive_agents)
+                        round_winners = [agent for agent in alive_agents if agent_stats[agent]['round_coins'] == max_coins]
+                        for winner in round_winners:
+                            agent_stats[winner]['wins'] += 1
+                    else:
+                        # If no coins were collected, treat all alive agents equally as winners
+                        for agent in alive_agents:
+                            agent_stats[agent]['wins'] += 1
 
                 # Update stats for all agents and reset for the next round
                 for agent, stats in agent_stats.items():
