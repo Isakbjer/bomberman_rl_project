@@ -9,9 +9,8 @@ def setup(self):
     """
     Setup your code. This is called once when loading each agent.
     If in training mode, initialize a new Q-table, otherwise load an existing one.
-
-    :param self: This object is passed to all callbacks, and you can set arbitrary values.
     """
+    global epsilon
     if os.path.isfile("q_table.pkl"):
         self.logger.info("Loading existing Q-table.")
         with open("q_table.pkl", "rb") as file:
@@ -19,6 +18,23 @@ def setup(self):
     else:
         self.logger.info("Initializing new Q-table from scratch.")
         self.q_table = {}
+
+    # Store epsilon values in self
+    self.epsilon = 1.0         # Initial exploration rate
+    self.epsilon_min = 0.1     # Minimum exploration rate
+    self.epsilon_decay = 0.995 # Decay rate per round
+
+    epsilon = 1.0  # Reset epsilon at the start of training
+
+def decay_epsilon():
+    """
+    Decays the epsilon value after each round or step.
+    """
+    global epsilon
+    if epsilon > epsilon_min:
+        epsilon *= epsilon_decay
+    epsilon = max(epsilon_min, epsilon)  # Ensure epsilon doesn't go below the minimum value
+
 
 def get_legal_moves(agent_position, game_state):
     """
@@ -68,12 +84,11 @@ def act(self, game_state: dict) -> str:
     
     # Epsilon-greedy action selection for training mode
     if self.train:
-        epsilon = 0.1  # Exploration rate
-        if random.random() < epsilon:
-            self.logger.info("Exploring: Choosing random action from legal moves.")
+        if random.random() < self.epsilon:
+            self.logger.info(f"Exploring: Choosing random action from legal moves. Epsilon: {self.epsilon:.4f}")
             return np.random.choice(legal_moves)  # Choose a random legal move
         else:
-            self.logger.info("Exploiting: Choosing best action from Q-table.")
+            self.logger.info(f"Exploiting: Choosing best action from Q-table. Epsilon: {self.epsilon:.4f}")
             # Choose the best action from the Q-table, restricted to legal moves
             best_action_index = np.argmax([self.q_table[state][ACTIONS.index(move)] for move in legal_moves])
             best_action = legal_moves[best_action_index]
@@ -86,6 +101,8 @@ def act(self, game_state: dict) -> str:
         best_action = legal_moves[best_action_index]
         self.logger.info(f"Best action selected: {best_action}")
         return best_action
+
+
 
 def state_to_features(game_state: dict):
     """

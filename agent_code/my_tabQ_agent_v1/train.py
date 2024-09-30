@@ -3,7 +3,8 @@ import pickle
 from typing import List
 import numpy as np
 import events as e
-from .callbacks import state_to_features, ACTIONS
+from .callbacks import state_to_features, ACTIONS, decay_epsilon 
+
 
 # Transition tuple to store (s, a, r, s')
 Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
@@ -81,27 +82,32 @@ def update_q_table(self, old_state, action, reward, new_state):
 
     self.logger.info(f"Q-table updated for state {old_state} and action {action}")
 
+
 def end_of_round(self, last_game_state: dict, last_action: str, events: list):
     """
-    Finalizes the round, updates the Q-table, logs end-of-round events, and saves the Q-table.
+    Finalizes the round, updates the Q-table for the last state-action pair, and decays epsilon.
     """
+    # Convert the last game state to features
     last_state = state_to_features(last_game_state)
+
+    # Calculate the reward from events
     reward = reward_from_events(self, events)
 
-    # Update the Q-table with the final state-action pair for this round
+    # Update the Q-table for the last action
     update_q_table(self, last_state, last_action, reward, None)
 
-    # Log whether the agent died or survived
-    if 'GOT_KILLED' in events or 'KILLED_SELF' in events:
-        self.logger.info("End of round: Agent died.")
-    else:
-        self.logger.info("End of round: Agent survived.")
+    # Decay epsilon after the round
+    if self.epsilon > self.epsilon_min:
+        self.epsilon *= self.epsilon_decay
+    self.logger.info(f"Epsilon decayed to: {self.epsilon:.4f}")
 
-    # Save the Q-table after the round
+    # Save the Q-table
     with open("q_table.pkl", "wb") as file:
         pickle.dump(self.q_table, file)
 
     self.logger.info("Q-table saved after the round.")
+
+
 
 def reward_from_events(self, events: list) -> int:
     """
